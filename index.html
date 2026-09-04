@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel de Envios WhatsApp Turbo</title>
     
+    <!-- Biblioteca SheetJS (CDN) para leitura de CSV, XLS e XLSX diretamente no navegador -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <style>
@@ -28,6 +29,7 @@
         .btn-danger { background: var(--danger); color: white; }
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn-outline:hover { background: var(--bg); }
+        .btn:disabled { opacity: 0.7; cursor: not-allowed; }
         
         .form-group { margin-bottom: 16px; }
         .form-group label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9rem; }
@@ -81,6 +83,7 @@
     </div>
 
     <div class="grid">
+        <!-- Coluna da Esquerda: WhatsApp Status -->
         <div>
             <div class="card">
                 <h2>Conexão WhatsApp</h2>
@@ -91,16 +94,18 @@
                     </div>
                 </div>
                 
+                <!-- Área do QR Code -->
                 <div id="qrContainer" class="qr-container">
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Escaneie o QR Code</p>
                     <img id="qrImage" src="" alt="QR Code">
                 </div>
 
+                <!-- Área do Login por Número -->
                 <div id="pairingSection" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
                     <p style="font-size: 0.9rem; margin-bottom: 10px; font-weight: 600;">Ou conecte via Telefone</p>
                     <div style="display: flex; gap: 8px;">
                         <input type="text" id="phoneInput" class="form-control" placeholder="Ex: 841234567">
-                        <button class="btn btn-outline" onclick="requestPairingCode()" style="padding: 10px; width: 100px;">Gerar</button>
+                        <button class="btn btn-outline" id="btnGerarCodigo" onclick="requestPairingCode()" style="padding: 10px; width: 110px;">Gerar</button>
                     </div>
                     <div id="pairingCodeDisplay" style="display: none; margin-top: 20px; text-align: center; background: var(--bg); padding: 16px; border-radius: 8px; border: 1px dashed var(--border);">
                         <span style="font-size: 0.85rem; color: var(--text-muted);">Código do WhatsApp:</span>
@@ -114,7 +119,9 @@
             </div>
         </div>
 
+        <!-- Coluna da Direita: Formulário -->
         <div>
+            <!-- Seção do Formulário -->
             <div id="formSection" class="card">
                 <h2>Configuração da Mensagem</h2>
                 
@@ -156,6 +163,7 @@
                 <button id="startBtn" class="btn btn-primary" style="margin-top: 12px; padding: 14px;">INICIAR ENVIO</button>
             </div>
 
+            <!-- Seção da Fila de Envios -->
             <div id="queueSection" class="card" style="display: none;">
                 <h2>Progresso do Envio</h2>
                 
@@ -195,6 +203,7 @@
     </div>
 </div>
 
+<!-- Modal de Confirmação -->
 <div id="confirmModal" class="modal">
     <div class="modal-content">
         <h3 style="margin-bottom: 12px; font-size: 1.2rem;">Confirmação</h3>
@@ -208,10 +217,12 @@
 </div>
 
 <script>
+    // Configura o Checkbox do Modo Turbo
     document.getElementById('turboMode').addEventListener('change', function(e) {
         document.getElementById('intervalInput').disabled = e.target.checked;
     });
 
+    // Mostra o preview da imagem selecionada
     document.getElementById('imageInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         const preview = document.getElementById('imagePreview');
@@ -224,14 +235,13 @@
         }
     });
 
+    // Formata e extrai apenas números e nomes das linhas
     function formatContacts() {
         const lines = document.getElementById('numbersInput').value.split('\n');
         const valid = new Set();
-        
         lines.forEach(line => {
             const trimmed = line.trim();
             if (!trimmed) return;
-            
             const parts = trimmed.split(',');
             const num = parts[0].replace(/\D/g, ''); 
             if (num) {
@@ -239,7 +249,6 @@
                 else valid.add(num);
             }
         });
-        
         const result = Array.from(valid).join('\n');
         document.getElementById('numbersInput').value = result;
         document.getElementById('contactCount').innerText = valid.size;
@@ -248,6 +257,7 @@
     
     document.getElementById('numbersInput').addEventListener('input', formatContacts);
 
+    // Sistema avançado de leitura de planilhas e arquivos texto
     document.getElementById('importFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -259,22 +269,17 @@
             reader.onload = function(evt) {
                 const data = new Uint8Array(evt.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1});
                 
                 let extracted = [];
                 json.forEach(row => {
-                    let num = '';
-                    let name = '';
+                    let num = '', name = '';
                     for (let cell of row) {
                         let str = String(cell || '').trim();
                         let digits = str.replace(/\D/g, '');
-                        if (digits.length >= 8 && !num) {
-                            num = digits;
-                        } else if (!name && str.length > 0) {
-                            name = str; 
-                        }
+                        // Acha que é número se tiver 8 ou mais dígitos
+                        if (digits.length >= 8 && !num) num = digits;
+                        else if (!name && str.length > 0) name = str; 
                     }
                     if (num) extracted.push(name ? `${num}, ${name}` : num);
                 });
@@ -296,53 +301,70 @@
         e.target.value = '';
     });
 
-    async function requestPairingCode() {
+    // === Geração de Código com Auto-Recuperação (Resolve Erro 428) ===
+    async function requestPairingCode(isRetry = false) {
         let phone = document.getElementById('phoneInput').value.replace(/\D/g, '');
         if (!phone) return alert('Por favor, digite um número de telefone.');
         
+        // Coloca automaticamente o código 258 para Moçambique se digitado apenas o número
         if (phone.length === 9 && ['8'].includes(phone[0])) {
             phone = '258' + phone;
         }
 
-        const res = await fetch('/api/pair', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ phone })
-        });
-        
-        const data = await res.json();
-        
-        // Se retornar erro de conexão fechada (428), o servidor pedirá para aguardar 5 segs.
-        if(data.error) return alert('Aviso: ' + data.error);
-        
-        document.getElementById('pairingCodeText').innerText = data.code;
-        document.getElementById('pairingCodeDisplay').style.display = 'block';
-        document.getElementById('qrContainer').style.display = 'none';
+        const btn = document.getElementById('btnGerarCodigo');
+        btn.innerText = isRetry ? "Aguarde..." : "Gerando...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/pair', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ phone })
+            });
+            
+            const data = await res.json();
+            
+            // Se o backend detectou o Erro 428 e reiniciou, ele pede pro frontend esperar e tentar de novo sozinho.
+            if (data.retry) {
+                setTimeout(() => requestPairingCode(true), 4000); 
+                return;
+            }
+            
+            if(data.error) {
+                btn.innerText = "Gerar"; btn.disabled = false;
+                return alert('Erro: ' + data.error);
+            }
+            
+            document.getElementById('pairingCodeText').innerText = data.code;
+            document.getElementById('pairingCodeDisplay').style.display = 'block';
+            document.getElementById('qrContainer').style.display = 'none';
+            
+            btn.innerText = "Gerar"; btn.disabled = false;
+
+        } catch (error) {
+            btn.innerText = "Gerar"; btn.disabled = false;
+            alert("Falha de conexão com o servidor. Verifique a internet.");
+        }
     }
 
+    // Modal e Confirmação de envio
     document.getElementById('startBtn').addEventListener('click', () => {
         const count = formatContacts();
         if (count === 0) return alert('Insira pelo menos um número válido.');
-        
         document.getElementById('modalCount').innerText = count;
         document.getElementById('turboWarning').style.display = document.getElementById('turboMode').checked ? 'block' : 'none';
         document.getElementById('confirmModal').classList.add('active');
     });
 
-    function closeModal() {
-        document.getElementById('confirmModal').classList.remove('active');
-    }
+    function closeModal() { document.getElementById('confirmModal').classList.remove('active'); }
 
     document.getElementById('confirmStartBtn').addEventListener('click', async () => {
         closeModal();
-        
         const isTurbo = document.getElementById('turboMode').checked;
-        const intervalValue = isTurbo ? '0' : document.getElementById('intervalInput').value;
-
         const formData = new FormData();
         formData.append('message', document.getElementById('messageInput').value);
         formData.append('numbers', JSON.stringify(document.getElementById('numbersInput').value.split('\n').filter(l => l.trim())));
-        formData.append('interval', intervalValue);
+        formData.append('interval', isTurbo ? '0' : document.getElementById('intervalInput').value);
         
         const imageFile = document.getElementById('imageInput').files[0];
         if (imageFile) formData.append('image', imageFile);
@@ -353,6 +375,7 @@
         await fetch('/api/send', { method: 'POST', body: formData });
     });
 
+    // === COMUNICAÇÃO EM TEMPO REAL (Server-Sent Events) ===
     const evtSource = new EventSource('/api/events');
     
     evtSource.addEventListener('status', (e) => {
@@ -365,16 +388,16 @@
         const btnConnect = document.getElementById('btnConnect');
         
         if (data.status === 'conectado') {
-            badge.className = 'status-badge connected';
+            badge.className = 'status-badge connected'; 
             text.innerText = 'Conectado: +' + data.phone;
-            btnDisconnect.style.display = 'block';
+            btnDisconnect.style.display = 'block'; 
             qrContainer.style.display = 'none';
-            pairingSection.style.display = 'none';
+            pairingSection.style.display = 'none'; 
             btnConnect.style.display = 'none';
         } else {
-            badge.className = 'status-badge disconnected';
+            badge.className = 'status-badge disconnected'; 
             text.innerText = 'Desconectado';
-            btnDisconnect.style.display = 'none';
+            btnDisconnect.style.display = 'none'; 
             pairingSection.style.display = 'block';
         }
     });
@@ -385,17 +408,14 @@
     });
 
     evtSource.addEventListener('qr', (e) => {
-        const qrBase64 = JSON.parse(e.data);
-        document.getElementById('qrImage').src = qrBase64;
+        document.getElementById('qrImage').src = JSON.parse(e.data);
         document.getElementById('qrContainer').style.display = 'block';
         document.getElementById('pairingCodeDisplay').style.display = 'none';
     });
 
     evtSource.addEventListener('queue-start', (e) => {
-        const items = JSON.parse(e.data);
-        const tbody = document.getElementById('queueTableBody');
-        tbody.innerHTML = '';
-        items.forEach((item, index) => {
+        const tbody = document.getElementById('queueTableBody'); tbody.innerHTML = '';
+        JSON.parse(e.data).forEach((item, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `<td>${item.number.split(',')[0]}</td><td id="row-${index}" class="status-pendente">Pendente</td>`;
             tbody.appendChild(tr);
@@ -409,39 +429,25 @@
         document.getElementById('statPendentes').innerText = stats.pendentes;
         
         const processed = stats.enviados + stats.falharam;
-        const total = stats.total;
-        const pct = total === 0 ? 0 : Math.round((processed / total) * 100);
-        
+        const pct = stats.total === 0 ? 0 : Math.round((processed / stats.total) * 100);
         document.getElementById('progressBar').style.width = pct + '%';
-        document.getElementById('progressText').innerText = `${processed} / ${total} (${pct}%)`;
+        document.getElementById('progressText').innerText = `${processed} / ${stats.total} (${pct}%)`;
     });
 
     evtSource.addEventListener('queue-update', (e) => {
         const data = JSON.parse(e.data);
         const cell = document.getElementById(`row-${data.index}`);
-        if (cell) {
-            cell.className = `status-${data.status}`;
-            cell.innerText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+        if (cell) { 
+            cell.className = `status-${data.status}`; 
+            cell.innerText = data.status.charAt(0).toUpperCase() + data.status.slice(1); 
         }
     });
 
     evtSource.addEventListener('queue-state', (e) => {
-        const data = JSON.parse(e.data);
-        const btnPause = document.getElementById('btnPause');
-        const btnResume = document.getElementById('btnResume');
-        const btnCancel = document.getElementById('btnCancel');
-        
-        if (data.status === 'pausado') {
-            btnPause.style.display = 'none';
-            btnResume.style.display = 'block';
-        } else if (data.status === 'executando') {
-            btnPause.style.display = 'block';
-            btnResume.style.display = 'none';
-        } else {
-            btnPause.style.display = 'none';
-            btnResume.style.display = 'none';
-            btnCancel.style.display = 'none';
-        }
+        const status = JSON.parse(e.data).status;
+        document.getElementById('btnPause').style.display = status === 'executando' ? 'block' : 'none';
+        document.getElementById('btnResume').style.display = status === 'pausado' ? 'block' : 'none';
+        document.getElementById('btnCancel').style.display = (status === 'executando' || status === 'pausado') ? 'block' : 'none';
     });
 </script>
 </body>
