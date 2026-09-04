@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Envios WhatsApp Turbo</title>
+    
+    <!-- Biblioteca SheetJS (CDN) para leitura de CSV, XLS e XLSX diretamente no navegador -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        :root { --primary: #2563eb; --primary-hover: #1d4ed8; --wa: #16a34a; --wa-hover: #15803d; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --text-muted: #64748b; --border: #e2e8f0; --danger: #ef4444; --warning: #f59e0b; --purple: #9333ea; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background: var(--bg); color: var(--text); padding: 20px; line-height: 1.5; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .header { margin-bottom: 24px; }
+        .header h1 { font-size: 1.5rem; color: var(--text); }
+        .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        
+        .card { background: var(--card); padding: 24px; border-radius: 12px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1); margin-bottom: 24px; border: 1px solid var(--border); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-weight: 600; }
+        
+        .btn { display: inline-block; padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: background-color 0.2s; text-align: center; }
+        .btn-primary { background: var(--primary); color: white; width: 100%; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-wa { background: var(--wa); color: white; width: 100%; margin-top: 10px; }
+        .btn-wa:hover { background: var(--wa-hover); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-outline:hover { background: var(--bg); }
+        
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9rem; }
+        .form-group label span { font-weight: normal; color: var(--text-muted); font-size: 0.8rem; }
+        .form-control { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; background: var(--card); color: var(--text); transition: border-color 0.2s; }
+        .form-control:focus { outline: none; border-color: var(--primary); }
+        .form-control:disabled { background: #e2e8f0; cursor: not-allowed; }
+        textarea.form-control { resize: vertical; min-height: 120px; }
+        
+        .status-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
+        .status-badge.disconnected { background: #fee2e2; color: #991b1b; }
+        .status-badge.connected { background: #dcfce7; color: #166534; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-badge.disconnected .status-dot { background: var(--danger); }
+        .status-badge.connected .status-dot { background: var(--wa); }
+        
+        .qr-container { text-align: center; margin: 16px 0; display: none; }
+        .qr-container img { max-width: 200px; border-radius: 12px; border: 1px solid var(--border); padding: 12px; background: white; }
+        
+        #imagePreview { max-width: 100%; max-height: 200px; margin-top: 12px; border-radius: 8px; display: none; border: 1px solid var(--border); }
+        
+        .progress-bar-container { width: 100%; background: var(--border); border-radius: 999px; overflow: hidden; height: 16px; margin: 20px 0; }
+        .progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.3s ease; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: center; margin-bottom: 24px; }
+        .stat-box { padding: 16px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+        .stat-box span { display: block; font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
+        
+        .table-container { max-height: 350px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        th { background: var(--bg); position: sticky; top: 0; font-weight: 600; color: var(--text-muted); }
+        .status-enviado { color: var(--wa); font-weight: 600; }
+        .status-falhou { color: var(--danger); font-weight: 600; }
+        .status-pendente { color: var(--warning); font-weight: 600; }
+        
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(2px); }
+        .modal.active { display: flex; }
+        .modal-content { background: var(--card); padding: 32px; border-radius: 12px; width: 90%; max-width: 400px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .modal-actions { display: flex; gap: 12px; justify-content: center; margin-top: 24px; }
+        .modal-actions .btn { flex: 1; }
+        
+        .turbo-box { background: #faf5ff; border: 1px solid #e9d5ff; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+        .turbo-box label { margin: 0; font-weight: 600; color: var(--purple); cursor: pointer; flex: 1; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Sistema de Envios</h1>
+    </div>
+
+    <div class="grid">
+        <!-- Coluna da Esquerda: WhatsApp Status -->
+        <div>
+            <div class="card">
+                <h2>Conexão WhatsApp</h2>
+                <div style="margin-bottom: 20px;">
+                    <div id="statusBadge" class="status-badge disconnected">
+                        <div class="status-dot"></div>
+                        <span id="statusText">Desconectado</span>
+                    </div>
+                </div>
+                
+                <!-- Área do QR Code -->
+                <div id="qrContainer" class="qr-container">
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Escaneie o QR Code</p>
+                    <img id="qrImage" src="" alt="QR Code">
+                </div>
+
+                <!-- Área do Login por Número -->
+                <div id="pairingSection" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+                    <p style="font-size: 0.9rem; margin-bottom: 10px; font-weight: 600;">Ou conecte via Telefone</p>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="phoneInput" class="form-control" placeholder="Ex: 841234567">
+                        <button class="btn btn-outline" onclick="requestPairingCode()" style="padding: 10px; width: 100px;">Gerar</button>
+                    </div>
+                    <div id="pairingCodeDisplay" style="display: none; margin-top: 20px; text-align: center; background: var(--bg); padding: 16px; border-radius: 8px; border: 1px dashed var(--border);">
+                        <span style="font-size: 0.85rem; color: var(--text-muted);">Código do WhatsApp:</span>
+                        <h3 id="pairingCodeText" style="letter-spacing: 2px; font-size: 1.8rem; color: var(--text); margin-top: 8px;"></h3>
+                        <p style="font-size: 0.8rem; color: var(--danger); margin-top: 8px;">Insira este código no seu celular.</p>
+                    </div>
+                </div>
+
+                <button id="btnConnect" class="btn btn-wa" style="display: none;" onclick="fetch('/api/connect', {method:'POST'})">Reconectar</button>
+                <button id="btnDisconnect" class="btn btn-outline" style="width: 100%; margin-top: 20px; display: none;" onclick="fetch('/api/disconnect', {method:'POST'})">Desconectar</button>
+            </div>
+        </div>
+
+        <!-- Coluna da Direita: Formulário -->
+        <div>
+            <!-- Seção do Formulário -->
+            <div id="formSection" class="card">
+                <h2>Configuração da Mensagem</h2>
+                
+                <div class="form-group">
+                    <label>Imagem <span>(Opcional)</span></label>
+                    <input type="file" id="imageInput" class="form-control" accept="image/*">
+                    <img id="imagePreview" src="">
+                </div>
+
+                <div class="form-group">
+                    <label>Mensagem</label>
+                    <textarea id="messageInput" class="form-control" placeholder="Digite sua mensagem.&#10;Variáveis suportadas: {{nome}} e {{numero}}"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label style="margin: 0;">Números <span>(TXT, CSV, XLS, XLSX)</span></label>
+                        <label class="btn btn-outline" style="padding: 4px 10px; font-size: 0.8rem; cursor: pointer;">
+                            Carregar Arquivo
+                            <input type="file" id="importFile" accept=".txt,.csv,.xls,.xlsx" style="display: none;">
+                        </label>
+                    </div>
+                    <textarea id="numbersInput" class="form-control" placeholder="Ex: 258841234567&#10;Ex com nome: 258841234567, João"></textarea>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+                        Contatos válidos encontrados: <span id="contactCount" style="font-weight: bold; color: var(--text);">0</span>
+                    </div>
+                </div>
+
+                <div class="turbo-box">
+                    <input type="checkbox" id="turboMode" style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="turboMode">⚡ ATIVAR MODO TURBO (Sem delay)</label>
+                </div>
+
+                <div class="form-group">
+                    <label>Intervalo entre mensagens <span>(Segundos)</span></label>
+                    <input type="number" id="intervalInput" class="form-control" value="10" min="1">
+                </div>
+
+                <button id="startBtn" class="btn btn-primary" style="margin-top: 12px; padding: 14px;">INICIAR ENVIO</button>
+            </div>
+
+            <!-- Seção da Fila de Envios (Oculta por Padrão) -->
+            <div id="queueSection" class="card" style="display: none;">
+                <h2>Progresso do Envio</h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-box">Enviados <span id="statEnviados" class="status-enviado">0</span></div>
+                    <div class="stat-box">Falharam <span id="statFalharam" class="status-falhou">0</span></div>
+                    <div class="stat-box">Pendentes <span id="statPendentes" class="status-pendente">0</span></div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; font-weight: 600;">
+                    <span id="progressText">0 / 0 (0%)</span>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="btnPause" class="btn btn-outline" onclick="fetch('/api/queue/pause', {method:'POST'})">PAUSAR</button>
+                        <button id="btnResume" class="btn btn-primary" style="display: none;" onclick="fetch('/api/queue/resume', {method:'POST'})">CONTINUAR</button>
+                        <button id="btnCancel" class="btn btn-danger" onclick="fetch('/api/queue/cancel', {method:'POST'})">CANCELAR</button>
+                    </div>
+                </div>
+                
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                
+                <div class="table-container">
+                    <table id="queueTable">
+                        <thead>
+                            <tr>
+                                <th>Número</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queueTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmação -->
+<div id="confirmModal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-bottom: 12px; font-size: 1.2rem;">Confirmação</h3>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Você está prestes a enviar mensagens para <strong style="color: var(--text);" id="modalCount">0</strong> contatos.</p>
+        <p id="turboWarning" style="color: var(--danger); font-size: 0.85rem; margin-top: 8px; font-weight: bold; display: none;">Aviso: Modo Turbo ativado. Risco maior de bloqueio.</p>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+            <button class="btn btn-primary" id="confirmStartBtn">Iniciar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- LÓGICA DE INTERFACE ---
+    
+    // Modo Turbo (Trava o input numérico)
+    document.getElementById('turboMode').addEventListener('change', function(e) {
+        document.getElementById('intervalInput').disabled = e.target.checked;
+    });
+
+    // Preview da imagem
+    document.getElementById('imageInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        const preview = document.getElementById('imagePreview');
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = evt => { preview.src = evt.target.result; preview.style.display = 'block'; }
+            reader.readAsDataURL(file);
+        } else {
+            preview.style.display = 'none';
+        }
+    });
+
+    // Formatar e contar contatos
+    function formatContacts() {
+        const lines = document.getElementById('numbersInput').value.split('\n');
+        const valid = new Set();
+        
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed) return;
+            
+            const parts = trimmed.split(',');
+            const num = parts[0].replace(/\D/g, ''); 
+            if (num) {
+                if (parts.length > 1) valid.add(`${num}, ${parts[1].trim()}`);
+                else valid.add(num);
+            }
+        });
+        
+        const result = Array.from(valid).join('\n');
+        document.getElementById('numbersInput').value = result;
+        document.getElementById('contactCount').innerText = valid.size;
+        return valid.size;
+    }
+    
+    document.getElementById('numbersInput').addEventListener('input', formatContacts);
+
+    // Importar Arquivos (TXT, CSV, XLS, XLSX) via SheetJS
+    document.getElementById('importFile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        if (['xls', 'xlsx', 'csv'].includes(ext)) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const data = new Uint8Array(evt.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                
+                let extracted = [];
+                // Processa linhas tentando encontrar telefone e nome independentemente da ordem
+                json.forEach(row => {
+                    let num = '';
+                    let name = '';
+                    for (let cell of row) {
+                        let str = String(cell || '').trim();
+                        let digits = str.replace(/\D/g, '');
+                        // Considera número se tiver mais de 8 dígitos
+                        if (digits.length >= 8 && !num) {
+                            num = digits;
+                        } else if (!name && str.length > 0) {
+                            name = str; 
+                        }
+                    }
+                    if (num) extracted.push(name ? `${num}, ${name}` : num);
+                });
+                
+                const current = document.getElementById('numbersInput').value;
+                document.getElementById('numbersInput').value = current + (current ? '\n' : '') + extracted.join('\n');
+                formatContacts();
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            // Se for TXT puro
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const current = document.getElementById('numbersInput').value;
+                document.getElementById('numbersInput').value = current + (current ? '\n' : '') + evt.target.result;
+                formatContacts();
+            }
+            reader.readAsText(file);
+        }
+        e.target.value = '';
+    });
+
+    // Código de Pareamento via Telefone
+    async function requestPairingCode() {
+        let phone = document.getElementById('phoneInput').value.replace(/\D/g, '');
+        if (!phone) return alert('Por favor, digite um número de telefone.');
+        
+        // Auto-adiciona 258 para números de Moçambique que foram digitados com 9 dígitos
+        if (phone.length === 9 && ['8'].includes(phone[0])) {
+            phone = '258' + phone;
+        }
+
+        const res = await fetch('/api/pair', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ phone })
+        });
+        
+        const data = await res.json();
+        if(data.error) return alert('Erro: ' + data.error);
+        
+        document.getElementById('pairingCodeText').innerText = data.code;
+        document.getElementById('pairingCodeDisplay').style.display = 'block';
+        document.getElementById('qrContainer').style.display = 'none';
+    }
+
+    // Botões e Modal
+    document.getElementById('startBtn').addEventListener('click', () => {
+        const count = formatContacts();
+        if (count === 0) return alert('Insira pelo menos um número válido.');
+        
+        document.getElementById('modalCount').innerText = count;
+        document.getElementById('turboWarning').style.display = document.getElementById('turboMode').checked ? 'block' : 'none';
+        document.getElementById('confirmModal').classList.add('active');
+    });
+
+    function closeModal() {
+        document.getElementById('confirmModal').classList.remove('active');
+    }
+
+    // Iniciar Envio (Requisição)
+    document.getElementById('confirmStartBtn').addEventListener('click', async () => {
+        closeModal();
+        
+        const isTurbo = document.getElementById('turboMode').checked;
+        const intervalValue = isTurbo ? '0' : document.getElementById('intervalInput').value;
+
+        const formData = new FormData();
+        formData.append('message', document.getElementById('messageInput').value);
+        formData.append('numbers', JSON.stringify(document.getElementById('numbersInput').value.split('\n').filter(l => l.trim())));
+        formData.append('interval', intervalValue);
+        
+        const imageFile = document.getElementById('imageInput').files[0];
+        if (imageFile) formData.append('image', imageFile);
+        
+        document.getElementById('formSection').style.display = 'none';
+        document.getElementById('queueSection').style.display = 'block';
+        
+        await fetch('/api/send', { method: 'POST', body: formData });
+    });
+
+    // --- COMUNICAÇÃO SERVER-SENT EVENTS (SSE) ---
+    const evtSource = new EventSource('/api/events');
+    
+    evtSource.addEventListener('status', (e) => {
+        const data = JSON.parse(e.data);
+        const badge = document.getElementById('statusBadge');
+        const text = document.getElementById('statusText');
+        const btnDisconnect = document.getElementById('btnDisconnect');
+        const qrContainer = document.getElementById('qrContainer');
+        const pairingSection = document.getElementById('pairingSection');
+        const btnConnect = document.getElementById('btnConnect');
+        
+        if (data.status === 'conectado') {
+            badge.className = 'status-badge connected';
+            text.innerText = 'Conectado: +' + data.phone;
+            btnDisconnect.style.display = 'block';
+            qrContainer.style.display = 'none';
+            pairingSection.style.display = 'none';
+            btnConnect.style.display = 'none';
+        } else {
+            badge.className = 'status-badge disconnected';
+            text.innerText = 'Desconectado';
+            btnDisconnect.style.display = 'none';
+            pairingSection.style.display = 'block';
+        }
+    });
+
+    // Ocultar modal de pareamento se der sucesso no meio do processo
+    evtSource.addEventListener('pairing-success', () => {
+        document.getElementById('pairingCodeDisplay').style.display = 'none';
+        document.getElementById('phoneInput').value = '';
+    });
+
+    evtSource.addEventListener('qr', (e) => {
+        const qrBase64 = JSON.parse(e.data);
+        document.getElementById('qrImage').src = qrBase64;
+        document.getElementById('qrContainer').style.display = 'block';
+        document.getElementById('pairingCodeDisplay').style.display = 'none'; // Esconde se gerar QR novamente
+    });
+
+    evtSource.addEventListener('queue-start', (e) => {
+        const items = JSON.parse(e.data);
+        const tbody = document.getElementById('queueTableBody');
+        tbody.innerHTML = '';
+        items.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item.number.split(',')[0]}</td><td id="row-${index}" class="status-pendente">Pendente</td>`;
+            tbody.appendChild(tr);
+        });
+    });
+
+    evtSource.addEventListener('queue-stats', (e) => {
+        const stats = JSON.parse(e.data);
+        document.getElementById('statEnviados').innerText = stats.enviados;
+        document.getElementById('statFalharam').innerText = stats.falharam;
+        document.getElementById('statPendentes').innerText = stats.pendentes;
+        
+        const processed = stats.enviados + stats.falharam;
+        const total = stats.total;
+        const pct = total === 0 ? 0 : Math.round((processed / total) * 100);
+        
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('progressText').innerText = `${processed} / ${total} (${pct}%)`;
+    });
+
+    evtSource.addEventListener('queue-update', (e) => {
+        const data = JSON.parse(e.data);
+        const cell = document.getElementById(`row-${data.index}`);
+        if (cell) {
+            cell.className = `status-${data.status}`;
+            cell.innerText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+        }
+    });
+
+    evtSource.addEventListener('queue-state', (e) => {
+        const data = JSON.parse(e.data);
+        const btnPause = document.getElementById('btnPause');
+        const btnResume = document.getElementById('btnResume');
+        const btnCancel = document.getElementById('btnCancel');
+        
+        if (data.status === 'pausado') {
+            btnPause.style.display = 'none';
+            btnResume.style.display = 'block';
+        } else if (data.status === 'executando') {
+            btnPause.style.display = 'block';
+            btnResume.style.display = 'none';
+        } else {
+            btnPause.style.display = 'none';
+            btnResume.style.display = 'none';
+            btnCancel.style.display = 'none';
+        }
+    });
+</script>
+</body>
+</html>
