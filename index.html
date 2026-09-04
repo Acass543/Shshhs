@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel de Envios WhatsApp Turbo</title>
     
-    <!-- Biblioteca SheetJS (CDN) para leitura de CSV, XLS e XLSX diretamente no navegador -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <style>
@@ -82,7 +81,6 @@
     </div>
 
     <div class="grid">
-        <!-- Coluna da Esquerda: WhatsApp Status -->
         <div>
             <div class="card">
                 <h2>Conexão WhatsApp</h2>
@@ -93,13 +91,11 @@
                     </div>
                 </div>
                 
-                <!-- Área do QR Code -->
                 <div id="qrContainer" class="qr-container">
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Escaneie o QR Code</p>
                     <img id="qrImage" src="" alt="QR Code">
                 </div>
 
-                <!-- Área do Login por Número -->
                 <div id="pairingSection" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
                     <p style="font-size: 0.9rem; margin-bottom: 10px; font-weight: 600;">Ou conecte via Telefone</p>
                     <div style="display: flex; gap: 8px;">
@@ -118,9 +114,7 @@
             </div>
         </div>
 
-        <!-- Coluna da Direita: Formulário -->
         <div>
-            <!-- Seção do Formulário -->
             <div id="formSection" class="card">
                 <h2>Configuração da Mensagem</h2>
                 
@@ -162,7 +156,6 @@
                 <button id="startBtn" class="btn btn-primary" style="margin-top: 12px; padding: 14px;">INICIAR ENVIO</button>
             </div>
 
-            <!-- Seção da Fila de Envios (Oculta por Padrão) -->
             <div id="queueSection" class="card" style="display: none;">
                 <h2>Progresso do Envio</h2>
                 
@@ -202,7 +195,6 @@
     </div>
 </div>
 
-<!-- Modal de Confirmação -->
 <div id="confirmModal" class="modal">
     <div class="modal-content">
         <h3 style="margin-bottom: 12px; font-size: 1.2rem;">Confirmação</h3>
@@ -216,14 +208,10 @@
 </div>
 
 <script>
-    // --- LÓGICA DE INTERFACE ---
-    
-    // Modo Turbo (Trava o input numérico)
     document.getElementById('turboMode').addEventListener('change', function(e) {
         document.getElementById('intervalInput').disabled = e.target.checked;
     });
 
-    // Preview da imagem
     document.getElementById('imageInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         const preview = document.getElementById('imagePreview');
@@ -236,7 +224,6 @@
         }
     });
 
-    // Formatar e contar contatos
     function formatContacts() {
         const lines = document.getElementById('numbersInput').value.split('\n');
         const valid = new Set();
@@ -261,7 +248,6 @@
     
     document.getElementById('numbersInput').addEventListener('input', formatContacts);
 
-    // Importar Arquivos (TXT, CSV, XLS, XLSX) via SheetJS
     document.getElementById('importFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -278,14 +264,12 @@
                 const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
                 
                 let extracted = [];
-                // Processa linhas tentando encontrar telefone e nome independentemente da ordem
                 json.forEach(row => {
                     let num = '';
                     let name = '';
                     for (let cell of row) {
                         let str = String(cell || '').trim();
                         let digits = str.replace(/\D/g, '');
-                        // Considera número se tiver mais de 8 dígitos
                         if (digits.length >= 8 && !num) {
                             num = digits;
                         } else if (!name && str.length > 0) {
@@ -301,7 +285,6 @@
             };
             reader.readAsArrayBuffer(file);
         } else {
-            // Se for TXT puro
             const reader = new FileReader();
             reader.onload = function(evt) {
                 const current = document.getElementById('numbersInput').value;
@@ -313,12 +296,10 @@
         e.target.value = '';
     });
 
-    // Código de Pareamento via Telefone
     async function requestPairingCode() {
         let phone = document.getElementById('phoneInput').value.replace(/\D/g, '');
         if (!phone) return alert('Por favor, digite um número de telefone.');
         
-        // Auto-adiciona 258 para números de Moçambique que foram digitados com 9 dígitos
         if (phone.length === 9 && ['8'].includes(phone[0])) {
             phone = '258' + phone;
         }
@@ -330,14 +311,15 @@
         });
         
         const data = await res.json();
-        if(data.error) return alert('Erro: ' + data.error);
+        
+        // Se retornar erro de conexão fechada (428), o servidor pedirá para aguardar 5 segs.
+        if(data.error) return alert('Aviso: ' + data.error);
         
         document.getElementById('pairingCodeText').innerText = data.code;
         document.getElementById('pairingCodeDisplay').style.display = 'block';
         document.getElementById('qrContainer').style.display = 'none';
     }
 
-    // Botões e Modal
     document.getElementById('startBtn').addEventListener('click', () => {
         const count = formatContacts();
         if (count === 0) return alert('Insira pelo menos um número válido.');
@@ -351,7 +333,6 @@
         document.getElementById('confirmModal').classList.remove('active');
     }
 
-    // Iniciar Envio (Requisição)
     document.getElementById('confirmStartBtn').addEventListener('click', async () => {
         closeModal();
         
@@ -372,7 +353,6 @@
         await fetch('/api/send', { method: 'POST', body: formData });
     });
 
-    // --- COMUNICAÇÃO SERVER-SENT EVENTS (SSE) ---
     const evtSource = new EventSource('/api/events');
     
     evtSource.addEventListener('status', (e) => {
@@ -399,7 +379,6 @@
         }
     });
 
-    // Ocultar modal de pareamento se der sucesso no meio do processo
     evtSource.addEventListener('pairing-success', () => {
         document.getElementById('pairingCodeDisplay').style.display = 'none';
         document.getElementById('phoneInput').value = '';
@@ -409,7 +388,7 @@
         const qrBase64 = JSON.parse(e.data);
         document.getElementById('qrImage').src = qrBase64;
         document.getElementById('qrContainer').style.display = 'block';
-        document.getElementById('pairingCodeDisplay').style.display = 'none'; // Esconde se gerar QR novamente
+        document.getElementById('pairingCodeDisplay').style.display = 'none';
     });
 
     evtSource.addEventListener('queue-start', (e) => {

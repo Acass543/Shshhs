@@ -4,7 +4,8 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+// Importando 'Browsers' para garantir compatibilidade do Pairing Code
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,14 +49,20 @@ function broadcast(event, data) {
 
 // --- CONEXÃO BAILEYS ---
 async function connectToWhatsApp() {
+    // Limpeza de conexão morta antes de tentar iniciar uma nova
+    if (sock) {
+        try { sock.ws.close(); } catch(e) {}
+        try { sock.ev.removeAllListeners(); } catch(e) {}
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState('baileys_auth_info');
     
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // Para usar código de pareamento, é obrigatório passar um browser padrão conhecido
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        // Utilizando identificador nativo do Ubuntu Chrome aprovado pelo WhatsApp
+        browser: Browsers.ubuntu('Chrome') 
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -149,7 +156,7 @@ async function processQueue() {
             if (queue.interval > 0) {
                 await new Promise(resolve => setTimeout(resolve, queue.interval * 1000));
             } else {
-                // Modo Turbo: aguarda apenas 50ms para evitar travamento da CPU do Node
+                // Modo Turbo
                 await new Promise(resolve => setTimeout(resolve, 50)); 
             }
         }
@@ -196,20 +203,37 @@ app.post('/api/disconnect', async (req, res) => {
     res.json({ success: true });
 });
 
-// Endpoint para gerar código de pareamento via Telefone
+// Endpoint com auto-recuperação de Erro 428 (Connection Closed)
 app.post('/api/pair', async (req, res) => {
     try {
         const phone = req.body.phone;
         if (!sock) return res.status(400).json({error: "Sistema iniciando, aguarde..."});
         if (sock.authState.creds.registered) return res.status(400).json({error: "O WhatsApp já está conectado."});
         
+        // Verifica se a conexão WebSocket está fisicamente aberta
+        // 1 significa OPEN. Se for diferente, vai causar o erro 428.
+        if (!sock.ws || sock.ws.readyState !== 1) {
+            connectToWhatsApp(); // Reinicia silenciosamente
+            return res.status(400).json({error: "A conexão estava inativa. Reiniciando o sistema, aguarde 5 segundos e clique em Gerar novamente."});
+        }
+
+        // Aguarda 1 segundo por garantia para o handshake terminar
+        await new Promise(r => setTimeout(r, 1000));
+        
         const code = await sock.requestPairingCode(phone);
-        // Formatar código: ABCD-EFGH
         const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
         res.json({ success: true, code: formattedCode });
+
     } catch(e) {
+        // Se ainda assim o Baileys cuspir o erro 428, nós matamos e iniciamos uma nova conexão limpa
+        if (e.message === 'Connection Closed' || e?.output?.statusCode === 428) {
+            console.log("[AVISO] WebSocket expirado. Reiniciando a conexão via Baileys...");
+            connectToWhatsApp();
+            return res.status(400).json({error: "A conexão inspirou e foi resetada. Aguarde 5 segundos e tente novamente."});
+        }
+
         console.error(e);
-        res.status(500).json({error: "Erro ao gerar código. Verifique o número e tente novamente."});
+        res.status(500).json({error: "Erro interno ao gerar o código. Verifique se o formato do número está correto."});
     }
 });
 
@@ -217,7 +241,7 @@ app.post('/api/send', upload.single('image'), (req, res) => {
     const numbers = JSON.parse(req.body.numbers);
     queue.items = numbers.map(num => ({ number: num, status: 'pendente' }));
     queue.message = req.body.message || '';
-    queue.interval = parseInt(req.body.interval) || 0; // 0 se for modo turbo
+    queue.interval = parseInt(req.body.interval) || 0;
     queue.image = req.file ? req.file.buffer : null;
     queue.currentIndex = 0;
     queue.stats = { enviados: 0, falharam: 0, pendentes: numbers.length, total: numbers.length };
