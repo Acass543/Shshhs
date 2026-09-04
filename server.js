@@ -4,7 +4,11 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+
+// BLINDAGEM CONTRA CRASH DO SERVIDOR (Evita que o Render derrube o sistema no erro 428)
+process.on('uncaughtException', console.error);
+process.on('unhandledRejection', console.error);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,14 +43,16 @@ let queue = {
 let isProcessing = false;
 
 function broadcast(event, data) {
-    clients.forEach(client => client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+    clients.forEach(client => {
+        try { client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch(e){}
+    });
 }
 
-// Inicialização com limpeza garantida
+// Inicialização Limpa
 async function connectToWhatsApp() {
     if (sock) {
-        try { sock.ws.close(); } catch(e) {}
         try { sock.ev.removeAllListeners(); } catch(e) {}
+        try { sock.ws.close(); } catch(e) {}
         sock = null;
     }
 
@@ -56,7 +62,7 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome') 
+        browser: ["Ubuntu", "Chrome", "20.0.04"] // Necessário para o Pairing Code funcionar
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -141,7 +147,7 @@ async function processQueue() {
     isProcessing = false;
 }
 
-// Endpoints
+// Rotas / API
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 app.get('/api/events', (req, res) => {
@@ -157,30 +163,47 @@ app.get('/api/events', (req, res) => {
 app.post('/api/connect', (req, res) => { if (waStatus.status === 'desconectado') connectToWhatsApp(); res.json({ success: true }); });
 app.post('/api/disconnect', async (req, res) => { if (sock) { await sock.logout(); } res.json({ success: true }); });
 
-// ENDPOINT DE GERAÇÃO COM RETRY AUTOMÁTICO
+// ENDPOINT BLINDADO PARA GERAÇÃO DO CÓDIGO DE PAREAMENTO
 app.post('/api/pair', async (req, res) => {
+    const phone = req.body.phone;
+    
+    if (sock?.authState?.creds?.registered) {
+        return res.status(400).json({error: "O WhatsApp já está conectado neste servidor."});
+    }
+
     try {
-        const phone = req.body.phone;
-        if (!sock) return res.status(400).json({error: "Sistema iniciando, aguarde alguns segundos..."});
-        if (sock.authState.creds.registered) return res.status(400).json({error: "O WhatsApp já está conectado."});
-        
-        // Se a conexão morreu, reinicia e diz ao front para tentar sozinho novamente
-        if (!sock.ws || sock.ws.readyState !== 1) {
-            connectToWhatsApp();
-            return res.status(200).json({ retry: true }); 
+        // Se a conexão morreu, reiniciamos ela inteira AQUI no backend
+        if (!sock || !sock.ws || sock.ws.readyState !== 1) {
+            console.log("Conexão inativa detectada. Reiniciando Baileys aguardando 3s...");
+            await connectToWhatsApp();
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
+        // Tenta gerar
         const code = await sock.requestPairingCode(phone);
         const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-        res.json({ success: true, code: formattedCode });
+        return res.json({ success: true, code: formattedCode });
 
-    } catch(e) {
-        // Erro 428 (Connection Closed) - Dispara o Auto-Retry
-        if (e.message === 'Connection Closed' || e?.output?.statusCode === 428) {
-            connectToWhatsApp();
-            return res.status(200).json({ retry: true });
+    } catch (e) {
+        console.error("Primeira tentativa de Pairing falhou:", e.message);
+        
+        // Se ainda assim der Connection Closed, forçamos um restart profundo e tentamos MAIS UMA VEZ
+        if (e?.output?.statusCode === 428 || e.message === 'Connection Closed') {
+            try {
+                console.log("Forçando reconexão extrema e tentando novamente em 4s...");
+                await connectToWhatsApp();
+                await new Promise(resolve => setTimeout(resolve, 4000));
+                
+                const code2 = await sock.requestPairingCode(phone);
+                const formattedCode2 = code2?.match(/.{1,4}/g)?.join('-') || code2;
+                return res.json({ success: true, code: formattedCode2 });
+            } catch (err2) {
+                console.error("Segunda tentativa também falhou:", err2.message);
+                return res.status(500).json({ error: "O WhatsApp bloqueou a requisição. Recarregue a página e tente de novo." });
+            }
         }
-        res.status(500).json({error: "Falha ao gerar código. Tente usar o QR Code."});
+
+        return res.status(500).json({ error: "Falha ao gerar o código. Verifique se o número de Moçambique está correto." });
     }
 });
 
@@ -199,4 +222,4 @@ app.post('/api/queue/resume', (req, res) => { if(queue.status === 'pausado') { q
 app.post('/api/queue/cancel', (req, res) => { queue.status = 'cancelado'; broadcast('queue-state', { status: queue.status }); res.json({ success: true }); });
 
 connectToWhatsApp();
-app.listen(PORT, '0.0.0.0', () => console.log(`Rodando na porta ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Rodando perfeitamente na porta ${PORT}`));

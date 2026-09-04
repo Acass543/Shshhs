@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel de Envios WhatsApp Turbo</title>
     
-    <!-- Biblioteca SheetJS (CDN) para leitura de CSV, XLS e XLSX diretamente no navegador -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <style>
@@ -94,13 +93,12 @@
                     </div>
                 </div>
                 
-                <!-- Área do QR Code -->
                 <div id="qrContainer" class="qr-container">
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Escaneie o QR Code</p>
                     <img id="qrImage" src="" alt="QR Code">
                 </div>
 
-                <!-- Área do Login por Número -->
+                <!-- Pareamento -->
                 <div id="pairingSection" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
                     <p style="font-size: 0.9rem; margin-bottom: 10px; font-weight: 600;">Ou conecte via Telefone</p>
                     <div style="display: flex; gap: 8px;">
@@ -121,7 +119,6 @@
 
         <!-- Coluna da Direita: Formulário -->
         <div>
-            <!-- Seção do Formulário -->
             <div id="formSection" class="card">
                 <h2>Configuração da Mensagem</h2>
                 
@@ -163,7 +160,7 @@
                 <button id="startBtn" class="btn btn-primary" style="margin-top: 12px; padding: 14px;">INICIAR ENVIO</button>
             </div>
 
-            <!-- Seção da Fila de Envios -->
+            <!-- Fila -->
             <div id="queueSection" class="card" style="display: none;">
                 <h2>Progresso do Envio</h2>
                 
@@ -203,7 +200,6 @@
     </div>
 </div>
 
-<!-- Modal de Confirmação -->
 <div id="confirmModal" class="modal">
     <div class="modal-content">
         <h3 style="margin-bottom: 12px; font-size: 1.2rem;">Confirmação</h3>
@@ -217,12 +213,10 @@
 </div>
 
 <script>
-    // Configura o Checkbox do Modo Turbo
     document.getElementById('turboMode').addEventListener('change', function(e) {
         document.getElementById('intervalInput').disabled = e.target.checked;
     });
 
-    // Mostra o preview da imagem selecionada
     document.getElementById('imageInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         const preview = document.getElementById('imagePreview');
@@ -235,7 +229,6 @@
         }
     });
 
-    // Formata e extrai apenas números e nomes das linhas
     function formatContacts() {
         const lines = document.getElementById('numbersInput').value.split('\n');
         const valid = new Set();
@@ -257,11 +250,9 @@
     
     document.getElementById('numbersInput').addEventListener('input', formatContacts);
 
-    // Sistema avançado de leitura de planilhas e arquivos texto
     document.getElementById('importFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
-        
         const ext = file.name.split('.').pop().toLowerCase();
         
         if (['xls', 'xlsx', 'csv'].includes(ext)) {
@@ -277,7 +268,6 @@
                     for (let cell of row) {
                         let str = String(cell || '').trim();
                         let digits = str.replace(/\D/g, '');
-                        // Acha que é número se tiver 8 ou mais dígitos
                         if (digits.length >= 8 && !num) num = digits;
                         else if (!name && str.length > 0) name = str; 
                     }
@@ -301,18 +291,17 @@
         e.target.value = '';
     });
 
-    // === Geração de Código com Auto-Recuperação (Resolve Erro 428) ===
-    async function requestPairingCode(isRetry = false) {
+    // Função Robusta de Conexão - SEM POP-UPS DE "TENTE DE NOVO"
+    async function requestPairingCode() {
         let phone = document.getElementById('phoneInput').value.replace(/\D/g, '');
         if (!phone) return alert('Por favor, digite um número de telefone.');
         
-        // Coloca automaticamente o código 258 para Moçambique se digitado apenas o número
         if (phone.length === 9 && ['8'].includes(phone[0])) {
             phone = '258' + phone;
         }
 
         const btn = document.getElementById('btnGerarCodigo');
-        btn.innerText = isRetry ? "Aguarde..." : "Gerando...";
+        btn.innerText = "Gerando...";
         btn.disabled = true;
 
         try {
@@ -324,12 +313,6 @@
             
             const data = await res.json();
             
-            // Se o backend detectou o Erro 428 e reiniciou, ele pede pro frontend esperar e tentar de novo sozinho.
-            if (data.retry) {
-                setTimeout(() => requestPairingCode(true), 4000); 
-                return;
-            }
-            
             if(data.error) {
                 btn.innerText = "Gerar"; btn.disabled = false;
                 return alert('Erro: ' + data.error);
@@ -338,16 +321,14 @@
             document.getElementById('pairingCodeText').innerText = data.code;
             document.getElementById('pairingCodeDisplay').style.display = 'block';
             document.getElementById('qrContainer').style.display = 'none';
-            
             btn.innerText = "Gerar"; btn.disabled = false;
 
         } catch (error) {
             btn.innerText = "Gerar"; btn.disabled = false;
-            alert("Falha de conexão com o servidor. Verifique a internet.");
+            alert("Falha de comunicação com o servidor. Tente novamente.");
         }
     }
 
-    // Modal e Confirmação de envio
     document.getElementById('startBtn').addEventListener('click', () => {
         const count = formatContacts();
         if (count === 0) return alert('Insira pelo menos um número válido.');
@@ -375,7 +356,7 @@
         await fetch('/api/send', { method: 'POST', body: formData });
     });
 
-    // === COMUNICAÇÃO EM TEMPO REAL (Server-Sent Events) ===
+    // EVENTOS DO SERVIDOR
     const evtSource = new EventSource('/api/events');
     
     evtSource.addEventListener('status', (e) => {
